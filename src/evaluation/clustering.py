@@ -17,8 +17,9 @@ def load_category_truth(language, word2id, lower):
     if not os.path.exists(filepath):
         return None
 
-    cat_clusters = defaultdict(set)
-    word_cats = []
+    # cat_clusters = defaultdict(set)
+    single_word_cats = []
+    multi_word_cats = []
 
     with io.open(filepath, 'r', encoding='utf-8') as f:
         for line in f:
@@ -27,22 +28,47 @@ def load_category_truth(language, word2id, lower):
             if word == "NULL":
                 continue
             if len(word.split(" ")) > 1:
-                continue
-            if not get_word_id(word, word2id, lower):
-                continue
-            cat_clusters[cat].add(word)
-            word_cats.append((word, cat))
+                multi_word_cats.append((word, cat))
+            else:
+                if not get_word_id(word, word2id, lower):
+                    continue
+                single_word_cats.append((word, cat))
 
-    return cat_clusters, word_cats
+    return single_word_cats, multi_word_cats
 
 
 def get_clustering_scores(language, word2id, embeddings, lower=False):
-    true_clusters, word_cats = load_category_truth(language, word2id, lower)
+    single_word_cats, multi_word_cats = load_category_truth(language, word2id, lower)
 
     eval_embeddings = np.stack(
-        [embeddings[get_word_id(word, word2id, lower)] for word, _ in word_cats])
+        [embeddings[get_word_id(word, word2id, lower)] for word, _ in single_word_cats])
 
-    prediction = KMeans(n_clusters=20, random_state=0).fit_predict(eval_embeddings)
-    truth = [cat for _, cat in word_cats]
+    kmeans = KMeans(n_clusters=20, random_state=0)
+    prediction = kmeans.fit_predict(eval_embeddings)
+
+    for multi_word, _ in multi_word_cats:
+        mw_embeddings = []
+        for word in multi_word.split(' '):
+            word_id = get_word_id(word, word2id, lower)
+            if word_id:
+                mw_embeddings.append(embeddings[word_id])
+        word_pred = kmeans.transform(np.stack(mw_embeddings))
+        mins = np.argmin(word_pred, axis=1)
+        clusters = defaultdict(list)
+        for pos, cluster in enumerate(mins):
+            clusters[cluster].append(word_pred[pos][cluster])
+        best = (None, 0, 0)
+        for cluster, dists in clusters.items():
+            cnt = len(dists)
+            if cnt >= best[1]:
+                _min = min(dists)
+                if cnt > best[1] or _min < best[2]:
+                    best = (cluster, cnt, _min)
+        assert best[0] is not None
+        prediction = np.append(prediction, best[0])
+
+    truth = [cat for _, cat in single_word_cats + multi_word_cats]
+
+    assert len(truth) == len(prediction)
 
     return {"ARI": adjusted_rand_score(truth, prediction)}
