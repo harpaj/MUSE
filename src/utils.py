@@ -261,6 +261,25 @@ def clip_parameters(model, clip):
             x.data.clamp_(-clip, clip)
 
 
+def get_word_id(word, word2id, lower):
+    """
+    Get a word ID.
+    If the model does not use lowercase and the evaluation file is lowercased,
+    we might be able to find an associated word.
+    """
+    assert type(lower) is bool
+    word_id = word2id.get(word)
+    if word_id is None and not lower:
+        word_id = word2id.get(word.capitalize())
+    if word_id is None and not lower:
+        word_id = word2id.get(word.title())
+    if word_id is None and not lower:
+        word_id = word2id.get(word.lower())
+    if not word_id:
+        logger.warn("Embedding for word {} not found".format(word))
+    return word_id
+
+
 def read_txt_embeddings(params, source, full_vocab):
     """
     Reload pretrained embeddings from a text file.

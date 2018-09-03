@@ -143,7 +143,8 @@ class Trainer(object):
             self.dico = load_identical_char_dico(word2id1, word2id2)
         # use one of the provided dictionary
         elif dico_train == "default":
-            filename = '%s-%s.0-5000.txt' % (self.params.src_lang, self.params.tgt_lang)
+            # filename = '%s-%s.0-5000.txt' % (self.params.src_lang, self.params.tgt_lang)
+            filename = '%s-%s.txt' % (self.params.src_lang, self.params.tgt_lang)
             self.dico = load_dictionary(
                 os.path.join(DIC_EVAL_PATH, filename),
                 word2id1, word2id2

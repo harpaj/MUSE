@@ -52,8 +52,9 @@ evaluator = Evaluator(trainer)
 
 # run evaluations
 to_log = OrderedDict({'n_iter': 0})
+evaluator.monolingual_cluster_accuracy(to_log)
 evaluator.monolingual_wordsim(to_log)
-# evaluator.monolingual_wordanalogy(to_log)
+evaluator.monolingual_wordanalogy(to_log)
 if params.tgt_lang:
     evaluator.crosslingual_wordsim(to_log)
     evaluator.word_translation(to_log)

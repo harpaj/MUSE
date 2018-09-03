@@ -12,6 +12,8 @@ import numpy as np
 import torch
 from scipy.stats import spearmanr
 
+from src.utils import get_word_id
+
 
 MONOLINGUAL_EVAL_PATH = 'data/monolingual'
 SEMEVAL17_EVAL_PATH = 'data/crosslingual/wordsim'
@@ -38,21 +40,6 @@ def get_word_pairs(path, lower=True):
                 continue
             word_pairs.append((line[0], line[1], float(line[2])))
     return word_pairs
-
-
-def get_word_id(word, word2id, lower):
-    """
-    Get a word ID.
-    If the model does not use lowercase and the evaluation file is lowercased,
-    we might be able to find an associated word.
-    """
-    assert type(lower) is bool
-    word_id = word2id.get(word)
-    if word_id is None and not lower:
-        word_id = word2id.get(word.capitalize())
-    if word_id is None and not lower:
-        word_id = word2id.get(word.title())
-    return word_id
 
 
 def get_spearman_rho(word2id1, embeddings1, path, lower,

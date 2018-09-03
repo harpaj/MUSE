@@ -11,7 +11,10 @@ import numpy as np
 from torch.autograd import Variable
 from torch import Tensor as torch_tensor
 
-from . import get_wordsim_scores, get_crosslingual_wordsim_scores, get_wordanalogy_scores
+from . import (
+    get_wordsim_scores, get_crosslingual_wordsim_scores, get_wordanalogy_scores,
+    get_clustering_scores
+)
 from . import get_word_translation_accuracy
 from . import load_europarl_data, get_sent_translation_accuracy
 from ..dico_builder import get_candidates, build_dictionary
@@ -85,6 +88,27 @@ class Evaluator(object):
             logger.info("Monolingual target word analogy score average: %.5f" % tgt_analogy_monolingual_scores)
             to_log['tgt_analogy_monolingual_scores'] = tgt_analogy_monolingual_scores
             to_log.update({'tgt_' + k: v for k, v in tgt_analogy_scores.items()})
+
+    def monolingual_cluster_accuracy(self, to_log):
+        src_clustering_scores = get_clustering_scores(
+            self.src_dico.lang, self.src_dico.word2id,
+            self.mapping(self.src_emb.weight).data.cpu().numpy()
+        )
+        if self.params.tgt_lang:
+            tgt_clustering_scores = get_clustering_scores(
+                self.tgt_dico.lang, self.tgt_dico.word2id,
+                self.tgt_emb.weight.data.cpu().numpy()
+            )
+        if src_clustering_scores is not None:
+            src_cluster_monolingual_scores = np.mean(list(src_clustering_scores.values()))
+            logger.info("Monolingual clustering score average: %.5f" % src_cluster_monolingual_scores)
+            to_log['src_clustering_monolingual_scores'] = src_cluster_monolingual_scores
+            to_log.update({'src_' + k: v for k, v in src_clustering_scores.items()})
+        if self.params.tgt_lang and tgt_clustering_scores is not None:
+            tgt_cluster_monolingual_scores = np.mean(list(tgt_clustering_scores.values()))
+            logger.info("Monolingual clustering score average: %.5f" % tgt_cluster_monolingual_scores)
+            to_log['tgt_clustering_monolingual_scores'] = tgt_cluster_monolingual_scores
+            to_log.update({'tgt_' + k: v for k, v in tgt_clustering_scores.items()})
 
     def crosslingual_wordsim(self, to_log):
         """
