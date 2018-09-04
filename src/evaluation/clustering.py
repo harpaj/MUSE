@@ -5,7 +5,7 @@ import string
 
 import hdbscan
 from sklearn.cluster import KMeans, AffinityPropagation
-from sklearn.metrics import adjusted_rand_score
+from sklearn.metrics import adjusted_rand_score, homogeneity_score, completeness_score
 import numpy as np
 
 from src.utils import get_word_id
@@ -15,12 +15,26 @@ MONOLINGUAL_EVAL_PATH = 'data/monolingual'
 DICT_PATH = 'data/crosslingual/dictionaries'
 
 
-def load_category_data(language, word2id, embeddings, lower):
+def load_training_data(language, word2id, embeddings, lower):
+    filepath = os.path.join(MONOLINGUAL_EVAL_PATH, language, 'aspect_terms.tsv')
+    if not os.path.exists(filepath):
+        return None
+
+    embedding_words = []
+    with io.open(filepath, 'r', encoding='utf-8') as f:
+        for line in f:
+            word = line.rstrip()
+            word_id = get_word_id(word, word2id, lower)
+            if word_id:
+                embedding_words.append((embeddings[word_id], word, None))
+    return embedding_words
+
+
+def load_evalutation_data(language, word2id, embeddings, lower):
     filepath = os.path.join(MONOLINGUAL_EVAL_PATH, language, 'categories.tsv')
     if not os.path.exists(filepath):
         return None
 
-    # cat_clusters = defaultdict(set)
     single_word_cats = []
     multi_word_cats = []
 
@@ -83,7 +97,8 @@ def get_multiword_predictions(cluster_model, multi_word_cats):
     return np.array(mw_predictions)
 
 
-def get_prediction_and_truth(single_word_cats, multi_word_cats, algorithm, kwargs):
+def get_prediction_and_truth(training_data, single_word_cats, multi_word_cats, algorithm, kwargs):
+    train_embeddings = np.stack(embedding for embedding, _, _ in training_data)
     eval_embeddings = np.stack(embedding for embedding, _, _ in single_word_cats)
     if algorithm == "kmeans":
         cluster_model = KMeans(random_state=0, n_jobs=-1, **kwargs)
@@ -93,7 +108,8 @@ def get_prediction_and_truth(single_word_cats, multi_word_cats, algorithm, kwarg
         cluster_model = hdbscan.HDBSCAN(core_dist_n_jobs=-1, **kwargs)
     else:
         raise AssertionError("Clustering algorithm {} is not supported".format(algorithm))
-    prediction = cluster_model.fit_predict(eval_embeddings)
+    train_prediction = cluster_model.fit_predict(train_embeddings)
+    prediction = cluster_model.predict(eval_embeddings)
     multiword_predictions = get_multiword_predictions(cluster_model, multi_word_cats)
     prediction = np.append(prediction, multiword_predictions)
 
@@ -101,27 +117,41 @@ def get_prediction_and_truth(single_word_cats, multi_word_cats, algorithm, kwarg
 
     assert len(truth) == len(prediction)
 
-    return prediction, truth
+    return prediction, truth, train_prediction
 
 
 def get_clustering_scores(
     language1, word2id1, embeddings1, language2=None, word2id2=None, embeddings2=None, lower=False,
-    algorithm="affinity", kwargs={}
+    algorithm="affinity", kwargs={}, full_training_data=False
 ):
 
-    single_word_cats, multi_word_cats = load_category_data(
+    single_word_cats, multi_word_cats = load_evalutation_data(
         language1, word2id1, embeddings1, lower)
 
+    if full_training_data:
+        training_data = load_training_data(language1, word2id1, embeddings1, lower)
+    else:
+        training_data = single_word_cats
+
     if language2:
-        single_word_cats2, multi_word_cats2 = load_category_data(
+        single_word_cats2, multi_word_cats2 = load_evalutation_data(
             language2, word2id2, embeddings2, lower)
+        if full_training_data:
+            training_data2 = load_training_data(language2, word2id2, embeddings2, lower)
+        else:
+            training_data2 = single_word_cats2
         single_word_cats += single_word_cats2
         multi_word_cats += multi_word_cats2
+        training_data += training_data2
 
-    prediction, truth = get_prediction_and_truth(
-        single_word_cats, multi_word_cats, algorithm, kwargs)
+    prediction, truth, _ = get_prediction_and_truth(
+        training_data, single_word_cats, multi_word_cats, algorithm, kwargs)
 
-    return {"ARI": adjusted_rand_score(truth, prediction)}
+    return {
+        "ARI": adjusted_rand_score(truth, prediction),
+        "HOMO": homogeneity_score(truth, prediction),
+        "COMP": completeness_score(truth, prediction)
+    }
 
 
 def load_dictionary(lang1, lang2):
@@ -140,35 +170,41 @@ def load_dictionary(lang1, lang2):
 
 def get_clustering_scores_cluster_seperately(
     language1, word2id1, embeddings1, language2, word2id2, embeddings2, lower=False,
-    algorithm="affinity", kwargs={}
+    algorithm="affinity", kwargs={}, full_training_data=False
 ):
 
-    single_word_cats1, multi_word_cats1 = load_category_data(
+    single_word_cats1, multi_word_cats1 = load_evalutation_data(
         language1, word2id1, embeddings1, lower)
 
-    prediction1, truth1 = get_prediction_and_truth(
-        single_word_cats1, multi_word_cats1, algorithm, kwargs)
+    if full_training_data:
+        training_data1 = load_training_data(language1, word2id1, embeddings1, lower)
+    else:
+        training_data1 = single_word_cats1
 
-    single_word_cats2, multi_word_cats2 = load_category_data(
+    prediction1, truth1, train_prediction1 = get_prediction_and_truth(
+        training_data1, single_word_cats1, multi_word_cats1, algorithm, kwargs)
+
+    single_word_cats2, multi_word_cats2 = load_evalutation_data(
         language2, word2id2, embeddings2, lower)
 
-    prediction2, truth2 = get_prediction_and_truth(
-        single_word_cats2, multi_word_cats2, algorithm, kwargs)
+    if full_training_data:
+        training_data2 = load_training_data(language2, word2id2, embeddings2, lower)
+    else:
+        training_data2 = single_word_cats2
 
-    # create clusters with real words and position for pred 1 and pred 2
-    # for each cluster in pred 1, for each word in cluster, check which category the translation is in
-    # count the target lang categories
-    # replace source cluster id with most frequent target cluster id
+    prediction2, truth2, train_prediction2 = get_prediction_and_truth(
+        training_data2, single_word_cats2, multi_word_cats2, algorithm, kwargs)
+
     dictionary = load_dictionary(language1, language2)
 
     clusters1 = defaultdict(set)
-    for idx, cluster in enumerate(prediction1[:len(single_word_cats1)]):
-        for translation in dictionary.get(single_word_cats1[idx][1], []):
+    for idx, cluster in enumerate(train_prediction1):
+        for translation in dictionary.get(training_data1[idx][1], []):
             clusters1[translation].add(cluster)
 
     clusters2 = defaultdict(Counter)
-    for idx, cluster in enumerate(prediction2[:len(single_word_cats2)]):
-        for translation_cluster in clusters1[single_word_cats2[idx][1]]:
+    for idx, cluster in enumerate(train_prediction2):
+        for translation_cluster in clusters1[training_data2[idx][1]]:
             clusters2[cluster][translation_cluster] += 1
 
     cluster_mapping = {c2: c1.most_common(1)[0][0] for c2, c1 in clusters2.items()}
@@ -179,4 +215,8 @@ def get_clustering_scores_cluster_seperately(
     prediction = np.append(prediction1, prediction2)
     truth = np.append(truth1, truth2)
 
-    return {"ARI": adjusted_rand_score(truth, prediction)}
+    return {
+        "ARI": adjusted_rand_score(truth, prediction),
+        "HOMO": homogeneity_score(truth, prediction),
+        "COMP": completeness_score(truth, prediction)
+    }
