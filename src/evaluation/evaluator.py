@@ -101,12 +101,12 @@ class Evaluator(object):
             )
         if src_clustering_scores is not None:
             src_cluster_monolingual_scores = np.mean(list(src_clustering_scores.values()))
-            logger.info("Monolingual clustering score average: %.5f" % src_cluster_monolingual_scores)
+            logger.info("Monolingual source clustering score average: %.5f" % src_cluster_monolingual_scores)
             to_log['src_clustering_monolingual_scores'] = src_cluster_monolingual_scores
             to_log.update({'src_' + k: v for k, v in src_clustering_scores.items()})
         if self.params.tgt_lang and tgt_clustering_scores is not None:
             tgt_cluster_monolingual_scores = np.mean(list(tgt_clustering_scores.values()))
-            logger.info("Monolingual clustering score average: %.5f" % tgt_cluster_monolingual_scores)
+            logger.info("Monolingual target clustering score average: %.5f" % tgt_cluster_monolingual_scores)
             to_log['tgt_clustering_monolingual_scores'] = tgt_cluster_monolingual_scores
             to_log.update({'tgt_' + k: v for k, v in tgt_clustering_scores.items()})
 
@@ -127,6 +127,23 @@ class Evaluator(object):
         logger.info("Cross-lingual word similarity score average: %.5f" % ws_crosslingual_scores)
         to_log['ws_crosslingual_scores'] = ws_crosslingual_scores
         to_log.update({'src_tgt_' + k: v for k, v in src_tgt_ws_scores.items()})
+
+    def crosslingual_cluster_accuracy(self, to_log):
+        """
+        Evaluation on cross-lingual word similarity.
+        """
+        src_emb = self.mapping(self.src_emb.weight).data.cpu().numpy()
+        tgt_emb = self.tgt_emb.weight.data.cpu().numpy()
+        src_tgt_cluster_scores = get_clustering_scores(
+            self.src_dico.lang, self.src_dico.word2id, src_emb,
+            self.tgt_dico.lang, self.tgt_dico.word2id, tgt_emb,
+        )
+        if src_tgt_cluster_scores is None:
+            return
+        cluster_crosslingual_scores = np.mean(list(src_tgt_cluster_scores.values()))
+        logger.info("Cross-lingual clustering score average: %.5f" % cluster_crosslingual_scores)
+        to_log['cluster_crosslingual_scores'] = cluster_crosslingual_scores
+        to_log.update({'src_tgt_' + k: v for k, v in src_tgt_cluster_scores.items()})
 
     def word_translation(self, to_log):
         """

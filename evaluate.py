@@ -56,6 +56,7 @@ evaluator.monolingual_cluster_accuracy(to_log)
 evaluator.monolingual_wordsim(to_log)
 evaluator.monolingual_wordanalogy(to_log)
 if params.tgt_lang:
+    evaluator.crosslingual_cluster_accuracy(to_log)
     evaluator.crosslingual_wordsim(to_log)
     evaluator.word_translation(to_log)
     evaluator.sent_translation(to_log)
