@@ -13,7 +13,7 @@ from torch import Tensor as torch_tensor
 
 from . import (
     get_wordsim_scores, get_crosslingual_wordsim_scores, get_wordanalogy_scores,
-    get_clustering_scores
+    get_clustering_scores, get_clustering_scores_cluster_seperately
 )
 from . import get_word_translation_accuracy
 from . import load_europarl_data, get_sent_translation_accuracy
@@ -144,6 +144,18 @@ class Evaluator(object):
         logger.info("Cross-lingual clustering score average: %.5f" % cluster_crosslingual_scores)
         to_log['cluster_crosslingual_scores'] = cluster_crosslingual_scores
         to_log.update({'src_tgt_' + k: v for k, v in src_tgt_cluster_scores.items()})
+
+        src_tgt_cluster_scores_sep = get_clustering_scores_cluster_seperately(
+            self.src_dico.lang, self.src_dico.word2id, src_emb,
+            self.tgt_dico.lang, self.tgt_dico.word2id, tgt_emb,
+        )
+        if src_tgt_cluster_scores_sep is None:
+            return
+        cluster_crosslingual_scores_sep = np.mean(list(src_tgt_cluster_scores_sep.values()))
+        logger.info(
+            "Seperate cross-lingual clustering score average: %.5f" % cluster_crosslingual_scores_sep)
+        to_log['cluster_crosslingual_scores_sep'] = cluster_crosslingual_scores_sep
+        to_log.update({'src_tgt_sep_' + k: v for k, v in src_tgt_cluster_scores_sep.items()})
 
     def word_translation(self, to_log):
         """

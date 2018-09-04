@@ -1,5 +1,6 @@
 import argparse
 from glob import iglob
+import string
 
 
 def collect_words(language):
@@ -20,8 +21,11 @@ def collect_words(language):
         line = line.strip()
         word, cat = line.split('\t')
         word = word.replace('""', '"')
-        if word != "NULL":
-            all_words.add(word)
+        tokens = word.split(' ')
+        for token in tokens:
+            token = token.strip(string.punctuation + " ")
+            if token:
+                all_words.add(token)
     for word in all_words:
         print(word)
 
