@@ -89,6 +89,7 @@ class Evaluator(object):
             to_log['tgt_analogy_monolingual_scores'] = tgt_analogy_monolingual_scores
             to_log.update({'tgt_' + k: v for k, v in tgt_analogy_scores.items()})
 
+
     def monolingual_cluster_accuracy(self, to_log):
         src_clustering_scores = get_clustering_scores(
             self.src_dico.lang, self.src_dico.word2id,
@@ -99,16 +100,17 @@ class Evaluator(object):
                 self.tgt_dico.lang, self.tgt_dico.word2id,
                 self.tgt_emb.weight.data.cpu().numpy()
             )
+        logger.info("Monolingual clustering w/ {}:".format("params"))
         if src_clustering_scores is not None:
-            src_cluster_monolingual_scores = np.mean(list(src_clustering_scores.values()))
-            logger.info("Monolingual source clustering score average: %.5f" % src_cluster_monolingual_scores)
-            to_log['src_clustering_monolingual_scores'] = src_cluster_monolingual_scores
-            to_log.update({'src_' + k: v for k, v in src_clustering_scores.items()})
+            logger.info("Source: {}".format(
+                "; ".join("{}: {}".format(k, v) for k, v in src_clustering_scores.items())
+            ))
+            to_log.update({'src_cluster_' + k: v for k, v in src_clustering_scores.items()})
         if self.params.tgt_lang and tgt_clustering_scores is not None:
-            tgt_cluster_monolingual_scores = np.mean(list(tgt_clustering_scores.values()))
-            logger.info("Monolingual target clustering score average: %.5f" % tgt_cluster_monolingual_scores)
-            to_log['tgt_clustering_monolingual_scores'] = tgt_cluster_monolingual_scores
-            to_log.update({'tgt_' + k: v for k, v in tgt_clustering_scores.items()})
+            logger.info("Target: {}".format(
+                "; ".join("{}: {}".format(k, v) for k, v in tgt_clustering_scores.items())
+            ))
+            to_log.update({'tgt_cluster_' + k: v for k, v in tgt_clustering_scores.items()})
 
     def crosslingual_wordsim(self, to_log):
         """
@@ -138,24 +140,25 @@ class Evaluator(object):
             self.src_dico.lang, self.src_dico.word2id, src_emb,
             self.tgt_dico.lang, self.tgt_dico.word2id, tgt_emb,
         )
-        if src_tgt_cluster_scores is None:
-            return
-        cluster_crosslingual_scores = np.mean(list(src_tgt_cluster_scores.values()))
-        logger.info("Cross-lingual clustering score average: %.5f" % cluster_crosslingual_scores)
-        to_log['cluster_crosslingual_scores'] = cluster_crosslingual_scores
-        to_log.update({'src_tgt_' + k: v for k, v in src_tgt_cluster_scores.items()})
 
         src_tgt_cluster_scores_sep = get_clustering_scores_cluster_seperately(
             self.src_dico.lang, self.src_dico.word2id, src_emb,
             self.tgt_dico.lang, self.tgt_dico.word2id, tgt_emb,
         )
-        if src_tgt_cluster_scores_sep is None:
-            return
-        cluster_crosslingual_scores_sep = np.mean(list(src_tgt_cluster_scores_sep.values()))
-        logger.info(
-            "Seperate cross-lingual clustering score average: %.5f" % cluster_crosslingual_scores_sep)
-        to_log['cluster_crosslingual_scores_sep'] = cluster_crosslingual_scores_sep
-        to_log.update({'src_tgt_sep_' + k: v for k, v in src_tgt_cluster_scores_sep.items()})
+
+        logger.info("Crosslingual clustering w/ {}:".format("params"))
+
+        if src_tgt_cluster_scores is not None:
+            logger.info("Multiling: {}".format(
+                "; ".join("{}: {}".format(k, v) for k, v in src_tgt_cluster_scores.items())
+            ))
+            to_log.update({'src_tgt_cluster_' + k: v for k, v in src_tgt_cluster_scores.items()})
+
+        if src_tgt_cluster_scores_sep is not None:
+            logger.info("Seperate: {}".format(
+                "; ".join("{}: {}".format(k, v) for k, v in src_tgt_cluster_scores_sep.items())
+            ))
+            to_log.update({'src_tgt_sep_cluster_' + k: v for k, v in src_tgt_cluster_scores_sep.items()})
 
     def word_translation(self, to_log):
         """
