@@ -13,9 +13,10 @@ from src.utils import get_word_id
 
 MONOLINGUAL_EVAL_PATH = 'data/monolingual'
 DICT_PATH = 'data/crosslingual/dictionaries'
+CLUSTER_PATH = 'data/crosslingual/clusters'
 
 
-def load_training_data(language, word2id, embeddings, lower):
+def load_training_data(language, word2id, embeddings, lower, maxlen=5000):
     filepath = os.path.join(MONOLINGUAL_EVAL_PATH, language, 'aspect_terms.tsv')
     if not os.path.exists(filepath):
         return None
@@ -23,10 +24,12 @@ def load_training_data(language, word2id, embeddings, lower):
     embedding_words = []
     with io.open(filepath, 'r', encoding='utf-8') as f:
         for line in f:
-            word = line.rstrip()
+            word, _ = line.rstrip().split('\t')
             word_id = get_word_id(word, word2id, lower)
             if word_id:
                 embedding_words.append((embeddings[word_id], word, None))
+            if len(embedding_words) >= maxlen:
+                break
     return embedding_words
 
 
@@ -57,7 +60,7 @@ def load_evalutation_data(language, word2id, embeddings, lower):
                     if word_id:
                         mw_embeddings.append(embeddings[word_id])
                 assert len(mw_embeddings)
-                multi_word_cats.append((np.stack(mw_embeddings), word.lower(), cat))
+                multi_word_cats.append((np.stack(mw_embeddings).astype("float64"), word.lower(), cat))
             else:
                 word_id = get_word_id(word, word2id, lower)
                 if word_id:
@@ -66,17 +69,24 @@ def load_evalutation_data(language, word2id, embeddings, lower):
     return single_word_cats, multi_word_cats
 
 
+def get_attention_clusters(language, cl=False):
+    if not cl:
+        filepath = os.path.join(MONOLINGUAL_EVAL_PATH, language, 'aspect_embeddings.txt')
+    else:
+        filepath = os.path.join(CLUSTER_PATH, language + ".txt")
+    return np.loadtxt(filepath)
+
+
 def get_multiword_predictions(cluster_model, multi_word_cats):
     # note: cluster model has to be ALREADY TRAINED
     mw_predictions = []
     for mw_embeddings, _, _ in multi_word_cats:
         clusters = defaultdict(list)
         if hasattr(cluster_model, "transform") or hasattr(cluster_model, "generate_prediction_data"):
-            try:
+            if hasattr(cluster_model, "transform"):
                 word_pred = cluster_model.transform(mw_embeddings)
-            except AttributeError:
-                word_pred = hdbscan.prediction.membership_vector(
-                    cluster_model, mw_embeddings)
+            else:
+                word_pred = hdbscan.prediction.membership_vector(cluster_model, mw_embeddings)
             mins = np.argmin(word_pred, axis=1)
             for pos, cluster in enumerate(mins):
                 clusters[cluster].append(word_pred[pos][cluster])
@@ -98,20 +108,30 @@ def get_multiword_predictions(cluster_model, multi_word_cats):
 
 
 def get_prediction_and_truth(training_data, single_word_cats, multi_word_cats, algorithm, kwargs):
-    train_embeddings = np.stack(embedding for embedding, _, _ in training_data)
-    eval_embeddings = np.stack(embedding for embedding, _, _ in single_word_cats)
+    train_embeddings = np.stack(embedding for embedding, _, _ in training_data).astype("float64")
+    eval_embeddings = np.stack(embedding for embedding, _, _ in single_word_cats).astype("float64")
     if algorithm == "kmeans":
         cluster_model = KMeans(random_state=0, n_jobs=-1, **kwargs)
+    elif algorithm == "attention":
+        centroids = kwargs["centroids"]
+        cluster_model = KMeans(random_state=0, n_jobs=-1, n_clusters=len(centroids), init=centroids)
+        cluster_model.cluster_centers_ = centroids
     elif algorithm == "affinity":
         cluster_model = AffinityPropagation(**kwargs)
     elif algorithm == "hdbscan":
-        cluster_model = hdbscan.HDBSCAN(core_dist_n_jobs=-1, **kwargs)
+        cluster_model = hdbscan.HDBSCAN(core_dist_n_jobs=-1, prediction_data=True, **kwargs)
     else:
         raise AssertionError("Clustering algorithm {} is not supported".format(algorithm))
-    train_prediction = cluster_model.fit_predict(train_embeddings)
-    prediction = cluster_model.predict(eval_embeddings)
+    if algorithm != "attention":
+        train_prediction = cluster_model.fit_predict(train_embeddings)
+    if algorithm != "hdbscan":
+        prediction = cluster_model.predict(eval_embeddings)
+    else:
+        prediction = hdbscan.prediction.approximate_predict(cluster_model, eval_embeddings)[0]
     multiword_predictions = get_multiword_predictions(cluster_model, multi_word_cats)
     prediction = np.append(prediction, multiword_predictions)
+    if algorithm == "attention":
+        train_prediction = prediction[:len(single_word_cats)]
 
     truth = [cat for _, _, cat in single_word_cats + multi_word_cats]
 
@@ -122,7 +142,7 @@ def get_prediction_and_truth(training_data, single_word_cats, multi_word_cats, a
 
 def get_clustering_scores(
     language1, word2id1, embeddings1, language2=None, word2id2=None, embeddings2=None, lower=False,
-    algorithm="affinity", kwargs={}, full_training_data=False
+    algorithm="affinity", kwargs={}, full_training_data=True
 ):
 
     single_word_cats, multi_word_cats = load_evalutation_data(
@@ -143,6 +163,13 @@ def get_clustering_scores(
         single_word_cats += single_word_cats2
         multi_word_cats += multi_word_cats2
         training_data += training_data2
+
+    if algorithm == "attention":
+        if not language2:
+            kwargs["centroids"] = get_attention_clusters(language1, cl=False)
+        else:
+            kwargs["centroids"] = get_attention_clusters(
+                "{}-{}".format(language1, language2), cl=True)
 
     prediction, truth, _ = get_prediction_and_truth(
         training_data, single_word_cats, multi_word_cats, algorithm, kwargs)
@@ -181,6 +208,7 @@ def get_clustering_scores_cluster_seperately(
     else:
         training_data1 = single_word_cats1
 
+    kwargs["centroids"] = get_attention_clusters(language1, cl=False)
     prediction1, truth1, train_prediction1 = get_prediction_and_truth(
         training_data1, single_word_cats1, multi_word_cats1, algorithm, kwargs)
 
@@ -192,6 +220,7 @@ def get_clustering_scores_cluster_seperately(
     else:
         training_data2 = single_word_cats2
 
+    kwargs["centroids"] = get_attention_clusters(language2, cl=False)
     prediction2, truth2, train_prediction2 = get_prediction_and_truth(
         training_data2, single_word_cats2, multi_word_cats2, algorithm, kwargs)
 

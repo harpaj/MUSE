@@ -89,18 +89,19 @@ class Evaluator(object):
             to_log['tgt_analogy_monolingual_scores'] = tgt_analogy_monolingual_scores
             to_log.update({'tgt_' + k: v for k, v in tgt_analogy_scores.items()})
 
-
-    def monolingual_cluster_accuracy(self, to_log):
+    def _run_monolingual_cluster_accuracy(self, algorithm, kwargs, to_log):
         src_clustering_scores = get_clustering_scores(
             self.src_dico.lang, self.src_dico.word2id,
-            self.mapping(self.src_emb.weight).data.cpu().numpy()
+            self.mapping(self.src_emb.weight).data.cpu().numpy(),
+            algorithm=algorithm, kwargs=kwargs
         )
         if self.params.tgt_lang:
             tgt_clustering_scores = get_clustering_scores(
                 self.tgt_dico.lang, self.tgt_dico.word2id,
-                self.tgt_emb.weight.data.cpu().numpy()
+                self.tgt_emb.weight.data.cpu().numpy(),
+                algorithm=algorithm, kwargs=kwargs
             )
-        logger.info("Monolingual clustering w/ {}:".format("params"))
+        logger.info("Monolingual clustering w/ {}, kwargs: {}:".format(algorithm, kwargs))
         if src_clustering_scores is not None:
             logger.info("Source: {}".format(
                 "; ".join("{}: {}".format(k, v) for k, v in src_clustering_scores.items())
@@ -111,6 +112,23 @@ class Evaluator(object):
                 "; ".join("{}: {}".format(k, v) for k, v in tgt_clustering_scores.items())
             ))
             to_log.update({'tgt_cluster_' + k: v for k, v in tgt_clustering_scores.items()})
+
+    def monolingual_cluster_accuracy(self, to_log):
+        to_test = {
+            "attention": {},
+            "kmeans": {
+                "n_clusters": range(6, 31, 4)
+            },
+            "affinity": {},
+            "hdbscan": {}
+        }
+        for method, args in to_test.items():
+            if args:
+                for argname, argvalues in args.items():
+                    for value in argvalues:
+                        self._run_monolingual_cluster_accuracy(method, {argname: value}, to_log)
+            else:
+                self._run_monolingual_cluster_accuracy(method, {}, to_log)
 
     def crosslingual_wordsim(self, to_log):
         """

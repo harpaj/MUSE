@@ -8,8 +8,11 @@ def collect_words(language):
     for path in iglob(f"monolingual/{language}/{language.upper()}_*.txt"):
         for line in open(path, 'r'):
             line = line.strip()
-            words = line.split("\t")[:2]
-            for word in words:
+            words = line.split("\t")
+            if len(words) != 3:
+                words = line.split(" ")
+            assert len(words) == 3
+            for word in words[:2]:
                 all_words.add(word)
     for line in open(f"monolingual/{language}/questions-words.txt", 'r'):
         if line.startswith(": "):
