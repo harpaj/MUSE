@@ -89,46 +89,72 @@ class Evaluator(object):
             to_log['tgt_analogy_monolingual_scores'] = tgt_analogy_monolingual_scores
             to_log.update({'tgt_' + k: v for k, v in tgt_analogy_scores.items()})
 
-    def _run_monolingual_cluster_accuracy(self, algorithm, kwargs, to_log):
-        src_clustering_scores = get_clustering_scores(
-            self.src_dico.lang, self.src_dico.word2id,
-            self.mapping(self.src_emb.weight).data.cpu().numpy(),
-            algorithm=algorithm, kwargs=kwargs
-        )
-        if self.params.tgt_lang:
-            tgt_clustering_scores = get_clustering_scores(
-                self.tgt_dico.lang, self.tgt_dico.word2id,
-                self.tgt_emb.weight.data.cpu().numpy(),
-                algorithm=algorithm, kwargs=kwargs
-            )
-        logger.info("Monolingual clustering w/ {}, kwargs: {}:".format(algorithm, kwargs))
-        if src_clustering_scores is not None:
-            logger.info("Source: {}".format(
-                "; ".join("{}: {}".format(k, v) for k, v in src_clustering_scores.items())
-            ))
-            to_log.update({'src_cluster_' + k: v for k, v in src_clustering_scores.items()})
-        if self.params.tgt_lang and tgt_clustering_scores is not None:
-            logger.info("Target: {}".format(
-                "; ".join("{}: {}".format(k, v) for k, v in tgt_clustering_scores.items())
-            ))
-            to_log.update({'tgt_cluster_' + k: v for k, v in tgt_clustering_scores.items()})
+    def _log_cluster_eval(self, clustering_scores, prefix, to_log):
+        logger.info("{}: {}".format(
+            prefix, "; ".join("{}: {}".format(k, v) for k, v in clustering_scores.items())
+        ))
+        to_log.update({prefix + '_cluster_' + k: v for k, v in clustering_scores.items()})
 
-    def monolingual_cluster_accuracy(self, to_log):
+    def _run_cluster_accuracy(self, algorithm, kwargs, full_data, cl, to_log):
+        if not cl:
+            src_clustering_scores = get_clustering_scores(
+                self.src_dico.lang, self.src_dico.word2id,
+                self.mapping(self.src_emb.weight).data.cpu().numpy(),
+                algorithm=algorithm, kwargs=kwargs, full_training_data=full_data
+            )
+            if self.params.tgt_lang:
+                tgt_clustering_scores = get_clustering_scores(
+                    self.tgt_dico.lang, self.tgt_dico.word2id,
+                    self.tgt_emb.weight.data.cpu().numpy(),
+                    algorithm=algorithm, kwargs=kwargs, full_training_data=full_data
+                )
+            logger.info("Monolingual clustering w/ {}, kwargs: {}:".format(algorithm, kwargs))
+            if src_clustering_scores is not None:
+                self._log_cluster_eval(src_clustering_scores, "source", to_log)
+            if self.params.tgt_lang and tgt_clustering_scores is not None:
+                self._log_cluster_eval(tgt_clustering_scores, "target", to_log)
+        else:
+            src_emb = self.mapping(self.src_emb.weight).data.cpu().numpy()
+            tgt_emb = self.tgt_emb.weight.data.cpu().numpy()
+            if cl == "multilingual":
+                cl_clustering_scores = get_clustering_scores(
+                    self.src_dico.lang, self.src_dico.word2id, src_emb,
+                    self.tgt_dico.lang, self.tgt_dico.word2id, tgt_emb,
+                )
+            else:
+                cl_clustering_scores = get_clustering_scores_cluster_seperately(
+                    self.src_dico.lang, self.src_dico.word2id, src_emb,
+                    self.tgt_dico.lang, self.tgt_dico.word2id, tgt_emb,
+                )
+
+            logger.info("Crosslingual ({}) clustering w/ {}, kwargs: {}:".format(
+                cl, algorithm, kwargs))
+            if cl_clustering_scores is not None:
+                self._log_cluster_eval(cl_clustering_scores, "source_target", to_log)
+
+    def cluster_accuracy(self, to_log, cl=False):
+        assert cl in [False, "multilingual", "separately"]
         to_test = {
             "attention": {},
             "kmeans": {
-                "n_clusters": range(6, 31, 4)
+                "n_clusters": range(6, 51, 4)
             },
-            "affinity": {},
-            "hdbscan": {}
+            "affinity": {
+                "damping": np.linspace(0.05, 0.95, 19)
+            },
+            "hdbscan": {
+                "min_cluster_size": range(5, 50, 5)
+            }
         }
         for method, args in to_test.items():
-            if args:
-                for argname, argvalues in args.items():
+            for full_data in [False, True]:
+                if args:
+                    argname, argvalues = next(iter(args.items()))
                     for value in argvalues:
-                        self._run_monolingual_cluster_accuracy(method, {argname: value}, to_log)
-            else:
-                self._run_monolingual_cluster_accuracy(method, {}, to_log)
+                        self._run_cluster_accuracy(
+                            method, {argname: value}, full_data, cl, to_log)
+                else:
+                    self._run_cluster_accuracy(method, {}, full_data, cl, to_log)
 
     def crosslingual_wordsim(self, to_log):
         """
@@ -152,31 +178,7 @@ class Evaluator(object):
         """
         Evaluation on cross-lingual word similarity.
         """
-        src_emb = self.mapping(self.src_emb.weight).data.cpu().numpy()
-        tgt_emb = self.tgt_emb.weight.data.cpu().numpy()
-        src_tgt_cluster_scores = get_clustering_scores(
-            self.src_dico.lang, self.src_dico.word2id, src_emb,
-            self.tgt_dico.lang, self.tgt_dico.word2id, tgt_emb,
-        )
 
-        src_tgt_cluster_scores_sep = get_clustering_scores_cluster_seperately(
-            self.src_dico.lang, self.src_dico.word2id, src_emb,
-            self.tgt_dico.lang, self.tgt_dico.word2id, tgt_emb,
-        )
-
-        logger.info("Crosslingual clustering w/ {}:".format("params"))
-
-        if src_tgt_cluster_scores is not None:
-            logger.info("Multiling: {}".format(
-                "; ".join("{}: {}".format(k, v) for k, v in src_tgt_cluster_scores.items())
-            ))
-            to_log.update({'src_tgt_cluster_' + k: v for k, v in src_tgt_cluster_scores.items()})
-
-        if src_tgt_cluster_scores_sep is not None:
-            logger.info("Seperate: {}".format(
-                "; ".join("{}: {}".format(k, v) for k, v in src_tgt_cluster_scores_sep.items())
-            ))
-            to_log.update({'src_tgt_sep_cluster_' + k: v for k, v in src_tgt_cluster_scores_sep.items()})
 
     def word_translation(self, to_log):
         """

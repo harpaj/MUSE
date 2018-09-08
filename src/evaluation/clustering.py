@@ -1,6 +1,7 @@
-import os
-import io
 from collections import defaultdict, Counter
+import io
+from logging import getLogger
+import os
 import string
 
 import hdbscan
@@ -10,6 +11,7 @@ import numpy as np
 
 from src.utils import get_word_id
 
+logger = getLogger()
 
 MONOLINGUAL_EVAL_PATH = 'data/monolingual'
 DICT_PATH = 'data/crosslingual/dictionaries'
@@ -107,6 +109,14 @@ def get_multiword_predictions(cluster_model, multi_word_cats):
     return np.array(mw_predictions)
 
 
+def print_clusters(predictions, words):
+    clusters = defaultdict(list)
+    for cl, word in zip(predictions, words):
+        clusters[cl].append(word)
+    for cluster, values in clusters.items():
+        logger.info("Cluster {}: {}".format(cluster, values))
+
+
 def get_prediction_and_truth(training_data, single_word_cats, multi_word_cats, algorithm, kwargs):
     train_embeddings = np.stack(embedding for embedding, _, _ in training_data).astype("float64")
     eval_embeddings = np.stack(embedding for embedding, _, _ in single_word_cats).astype("float64")
@@ -119,7 +129,8 @@ def get_prediction_and_truth(training_data, single_word_cats, multi_word_cats, a
     elif algorithm == "affinity":
         cluster_model = AffinityPropagation(**kwargs)
     elif algorithm == "hdbscan":
-        cluster_model = hdbscan.HDBSCAN(core_dist_n_jobs=-1, prediction_data=True, **kwargs)
+        cluster_model = hdbscan.HDBSCAN(
+            core_dist_n_jobs=-1, prediction_data=True, min_samples=1, **kwargs)
     else:
         raise AssertionError("Clustering algorithm {} is not supported".format(algorithm))
     if algorithm != "attention":
@@ -133,6 +144,8 @@ def get_prediction_and_truth(training_data, single_word_cats, multi_word_cats, a
     if algorithm == "attention":
         train_prediction = prediction[:len(single_word_cats)]
 
+    print_clusters(prediction, [w for _, w, _ in single_word_cats + multi_word_cats])
+
     truth = [cat for _, _, cat in single_word_cats + multi_word_cats]
 
     assert len(truth) == len(prediction)
@@ -142,7 +155,7 @@ def get_prediction_and_truth(training_data, single_word_cats, multi_word_cats, a
 
 def get_clustering_scores(
     language1, word2id1, embeddings1, language2=None, word2id2=None, embeddings2=None, lower=False,
-    algorithm="affinity", kwargs={}, full_training_data=True
+    algorithm="affinity", kwargs={}, full_training_data=False
 ):
 
     single_word_cats, multi_word_cats = load_evalutation_data(
