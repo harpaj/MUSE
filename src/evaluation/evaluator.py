@@ -89,30 +89,34 @@ class Evaluator(object):
             to_log['tgt_analogy_monolingual_scores'] = tgt_analogy_monolingual_scores
             to_log.update({'tgt_' + k: v for k, v in tgt_analogy_scores.items()})
 
-    def _log_cluster_eval(self, clustering_scores, prefix, to_log):
+    def _log_cluster_eval(self, clustering_scores, prefix, algo, kwargs, full, to_log):
         logger.info("{}: {}".format(
             prefix, "; ".join("{}: {}".format(k, v) for k, v in clustering_scores.items())
         ))
-        to_log.update({prefix + '_cluster_' + k: v for k, v in clustering_scores.items()})
+        log_base = "_".join((prefix, "cluster", algo, str(kwargs), str(full)))
+        to_log.update({log_base + "_" + k: v for k, v in clustering_scores.items()})
 
     def _run_cluster_accuracy(self, algorithm, kwargs, full_data, cl, to_log):
         if not cl:
             src_clustering_scores = get_clustering_scores(
                 self.src_dico.lang, self.src_dico.word2id,
                 self.mapping(self.src_emb.weight).data.cpu().numpy(),
-                algorithm=algorithm, kwargs=kwargs, full_training_data=full_data
+                algorithm=algorithm, kwargs=kwargs.copy(), full_training_data=full_data
             )
             if self.params.tgt_lang:
                 tgt_clustering_scores = get_clustering_scores(
                     self.tgt_dico.lang, self.tgt_dico.word2id,
                     self.tgt_emb.weight.data.cpu().numpy(),
-                    algorithm=algorithm, kwargs=kwargs, full_training_data=full_data
+                    algorithm=algorithm, kwargs=kwargs.copy(), full_training_data=full_data
                 )
-            logger.info("Monolingual clustering w/ {}, kwargs: {}:".format(algorithm, kwargs))
+            logger.info("Monolingual clustering w/ {}, kwargs {}, training w/ full data {}:".format(
+                algorithm, kwargs, full_data))
             if src_clustering_scores is not None:
-                self._log_cluster_eval(src_clustering_scores, "source", to_log)
+                self._log_cluster_eval(
+                    src_clustering_scores, "source", algorithm, kwargs, full_data, to_log)
             if self.params.tgt_lang and tgt_clustering_scores is not None:
-                self._log_cluster_eval(tgt_clustering_scores, "target", to_log)
+                self._log_cluster_eval(
+                    tgt_clustering_scores, "target", algorithm, kwargs, full_data, to_log)
         else:
             src_emb = self.mapping(self.src_emb.weight).data.cpu().numpy()
             tgt_emb = self.tgt_emb.weight.data.cpu().numpy()
@@ -120,30 +124,33 @@ class Evaluator(object):
                 cl_clustering_scores = get_clustering_scores(
                     self.src_dico.lang, self.src_dico.word2id, src_emb,
                     self.tgt_dico.lang, self.tgt_dico.word2id, tgt_emb,
+                    algorithm=algorithm, kwargs=kwargs.copy(), full_training_data=full_data
                 )
             else:
                 cl_clustering_scores = get_clustering_scores_cluster_seperately(
                     self.src_dico.lang, self.src_dico.word2id, src_emb,
                     self.tgt_dico.lang, self.tgt_dico.word2id, tgt_emb,
+                    algorithm=algorithm, kwargs=kwargs.copy(), full_training_data=full_data
                 )
 
-            logger.info("Crosslingual ({}) clustering w/ {}, kwargs: {}:".format(
-                cl, algorithm, kwargs))
+            logger.info("Crosslingual ({}) clustering w/ {}, kwargs {}, training w/ full data {}".format(
+                cl, algorithm, kwargs, full_data))
             if cl_clustering_scores is not None:
-                self._log_cluster_eval(cl_clustering_scores, "source_target", to_log)
+                self._log_cluster_eval(
+                    cl_clustering_scores, "source_target", algorithm, kwargs, full_data, to_log)
 
     def cluster_accuracy(self, to_log, cl=False):
         assert cl in [False, "multilingual", "separately"]
         to_test = {
             "attention": {},
             "kmeans": {
-                "n_clusters": range(6, 51, 4)
+                "n_clusters": range(5, 51, 3)
             },
             "affinity": {
-                "damping": np.linspace(0.05, 0.95, 19)
+                "damping": np.linspace(0.5, 0.95, 10)
             },
             "hdbscan": {
-                "min_cluster_size": range(5, 50, 5)
+                "min_cluster_size": range(5, 51, 5)
             }
         }
         for method, args in to_test.items():

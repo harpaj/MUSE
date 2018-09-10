@@ -127,7 +127,7 @@ def get_prediction_and_truth(training_data, single_word_cats, multi_word_cats, a
         cluster_model = KMeans(random_state=0, n_jobs=-1, n_clusters=len(centroids), init=centroids)
         cluster_model.cluster_centers_ = centroids
     elif algorithm == "affinity":
-        cluster_model = AffinityPropagation(**kwargs)
+        cluster_model = AffinityPropagation(preference=-6, **kwargs)
     elif algorithm == "hdbscan":
         cluster_model = hdbscan.HDBSCAN(
             core_dist_n_jobs=-1, prediction_data=True, min_samples=1, **kwargs)
@@ -221,7 +221,8 @@ def get_clustering_scores_cluster_seperately(
     else:
         training_data1 = single_word_cats1
 
-    kwargs["centroids"] = get_attention_clusters(language1, cl=False)
+    if algorithm == "attention":
+        kwargs["centroids"] = get_attention_clusters(language1, cl=False)
     prediction1, truth1, train_prediction1 = get_prediction_and_truth(
         training_data1, single_word_cats1, multi_word_cats1, algorithm, kwargs)
 
@@ -233,7 +234,8 @@ def get_clustering_scores_cluster_seperately(
     else:
         training_data2 = single_word_cats2
 
-    kwargs["centroids"] = get_attention_clusters(language2, cl=False)
+    if algorithm == "attention":
+        kwargs["centroids"] = get_attention_clusters(language2, cl=False)
     prediction2, truth2, train_prediction2 = get_prediction_and_truth(
         training_data2, single_word_cats2, multi_word_cats2, algorithm, kwargs)
 

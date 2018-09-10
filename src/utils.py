@@ -275,8 +275,6 @@ def get_word_id(word, word2id, lower):
         word_id = word2id.get(word.title())
     if word_id is None and not lower:
         word_id = word2id.get(word.lower())
-    if not word_id:
-        logger.warn("Embedding for word {} not found".format(word))
     return word_id
 
 
