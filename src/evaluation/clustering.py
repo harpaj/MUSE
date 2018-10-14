@@ -4,9 +4,8 @@ from logging import getLogger
 import os
 import string
 
-import hdbscan
 from sklearn.cluster import KMeans, AffinityPropagation
-from sklearn.metrics import adjusted_rand_score, homogeneity_score, completeness_score
+from sklearn.metrics import homogeneity_score, completeness_score
 import numpy as np
 
 from src.utils import get_word_id
@@ -62,20 +61,21 @@ def load_evalutation_data(language, word2id, embeddings, lower):
                     if word_id:
                         mw_embeddings.append(embeddings[word_id])
                 assert len(mw_embeddings)
-                multi_word_cats.append((np.stack(mw_embeddings).astype("float64"), word.lower(), cat))
+                multi_word_cats.append((np.stack(mw_embeddings).astype("float64"), word, cat))
             else:
                 word_id = get_word_id(word, word2id, lower)
                 if word_id:
-                    single_word_cats.append((embeddings[word_id], word.lower(), cat))
+                    single_word_cats.append((embeddings[word_id], word, cat))
 
     return single_word_cats, multi_word_cats
 
 
-def get_attention_clusters(language, cl=False):
+def get_attention_clusters(language, n_topics, cl=False):
     if not cl:
-        filepath = os.path.join(MONOLINGUAL_EVAL_PATH, language, 'aspect_embeddings.txt')
+        filepath = os.path.join(
+            MONOLINGUAL_EVAL_PATH, language, 'aspect_embeddings.txt_' + str(n_topics))
     else:
-        filepath = os.path.join(CLUSTER_PATH, language + ".txt")
+        filepath = os.path.join(CLUSTER_PATH, language + ".txt_" + str(n_topics))
     return np.loadtxt(filepath)
 
 
@@ -84,11 +84,8 @@ def get_multiword_predictions(cluster_model, multi_word_cats):
     mw_predictions = []
     for mw_embeddings, _, _ in multi_word_cats:
         clusters = defaultdict(list)
-        if hasattr(cluster_model, "transform") or hasattr(cluster_model, "generate_prediction_data"):
-            if hasattr(cluster_model, "transform"):
-                word_pred = cluster_model.transform(mw_embeddings)
-            else:
-                word_pred = hdbscan.prediction.membership_vector(cluster_model, mw_embeddings)
+        if hasattr(cluster_model, "transform"):
+            word_pred = cluster_model.transform(mw_embeddings)
             mins = np.argmin(word_pred, axis=1)
             for pos, cluster in enumerate(mins):
                 clusters[cluster].append(word_pred[pos][cluster])
@@ -114,7 +111,7 @@ def print_clusters(predictions, words):
     for cl, word in zip(predictions, words):
         clusters[cl].append(word)
     for cluster, values in clusters.items():
-        logger.info("Cluster {}: {}".format(cluster, values))
+        logger.info("Cluster {}: {}".format(cluster, sorted(values)))
 
 
 def get_prediction_and_truth(training_data, single_word_cats, multi_word_cats, algorithm, kwargs):
@@ -127,18 +124,12 @@ def get_prediction_and_truth(training_data, single_word_cats, multi_word_cats, a
         cluster_model = KMeans(random_state=0, n_jobs=-1, n_clusters=len(centroids), init=centroids)
         cluster_model.cluster_centers_ = centroids
     elif algorithm == "affinity":
-        cluster_model = AffinityPropagation(preference=-6, **kwargs)
-    elif algorithm == "hdbscan":
-        cluster_model = hdbscan.HDBSCAN(
-            core_dist_n_jobs=-1, prediction_data=True, min_samples=1, **kwargs)
+        cluster_model = AffinityPropagation(damping=0.9, **kwargs)
     else:
         raise AssertionError("Clustering algorithm {} is not supported".format(algorithm))
     if algorithm != "attention":
         train_prediction = cluster_model.fit_predict(train_embeddings)
-    if algorithm != "hdbscan":
-        prediction = cluster_model.predict(eval_embeddings)
-    else:
-        prediction = hdbscan.prediction.approximate_predict(cluster_model, eval_embeddings)[0]
+    prediction = cluster_model.predict(eval_embeddings)
     multiword_predictions = get_multiword_predictions(cluster_model, multi_word_cats)
     prediction = np.append(prediction, multiword_predictions)
     if algorithm == "attention":
@@ -164,33 +155,35 @@ def get_clustering_scores(
     if full_training_data:
         training_data = load_training_data(language1, word2id1, embeddings1, lower)
     else:
-        training_data = single_word_cats
+        training_data = single_word_cats.copy()
 
     if language2:
         single_word_cats2, multi_word_cats2 = load_evalutation_data(
             language2, word2id2, embeddings2, lower)
+
         if full_training_data:
             training_data2 = load_training_data(language2, word2id2, embeddings2, lower)
         else:
-            training_data2 = single_word_cats2
+            training_data2 = single_word_cats2.copy()
+
         single_word_cats += single_word_cats2
         multi_word_cats += multi_word_cats2
         training_data += training_data2
 
     if algorithm == "attention":
         if not language2:
-            kwargs["centroids"] = get_attention_clusters(language1, cl=False)
+            kwargs["centroids"] = get_attention_clusters(language1, kwargs["n_topics"], cl=False)
         else:
             kwargs["centroids"] = get_attention_clusters(
-                "{}-{}".format(language1, language2), cl=True)
+                "{}-{}".format(language1, language2), kwargs["n_topics"], cl=True)
 
     prediction, truth, _ = get_prediction_and_truth(
         training_data, single_word_cats, multi_word_cats, algorithm, kwargs)
 
     return {
-        "ARI": adjusted_rand_score(truth, prediction),
+        "LEN": len(set(prediction)),
         "HOMO": homogeneity_score(truth, prediction),
-        "COMP": completeness_score(truth, prediction)
+        "COMP": completeness_score(truth, prediction),
     }
 
 
@@ -222,7 +215,7 @@ def get_clustering_scores_cluster_seperately(
         training_data1 = single_word_cats1
 
     if algorithm == "attention":
-        kwargs["centroids"] = get_attention_clusters(language1, cl=False)
+        kwargs["centroids"] = get_attention_clusters(language1, kwargs["n_topics"], cl=False)
     prediction1, truth1, train_prediction1 = get_prediction_and_truth(
         training_data1, single_word_cats1, multi_word_cats1, algorithm, kwargs)
 
@@ -235,7 +228,7 @@ def get_clustering_scores_cluster_seperately(
         training_data2 = single_word_cats2
 
     if algorithm == "attention":
-        kwargs["centroids"] = get_attention_clusters(language2, cl=False)
+        kwargs["centroids"] = get_attention_clusters(language2, kwargs["n_topics"], cl=False)
     prediction2, truth2, train_prediction2 = get_prediction_and_truth(
         training_data2, single_word_cats2, multi_word_cats2, algorithm, kwargs)
 
@@ -260,7 +253,7 @@ def get_clustering_scores_cluster_seperately(
     truth = np.append(truth1, truth2)
 
     return {
-        "ARI": adjusted_rand_score(truth, prediction),
+        "LEN": len(set(prediction)),
         "HOMO": homogeneity_score(truth, prediction),
         "COMP": completeness_score(truth, prediction)
     }

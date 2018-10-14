@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 #
 
+from itertools import chain
 from logging import getLogger
 from copy import deepcopy
 import numpy as np
@@ -137,21 +138,20 @@ class Evaluator(object):
                 cl, algorithm, kwargs, full_data))
             if cl_clustering_scores is not None:
                 self._log_cluster_eval(
-                    cl_clustering_scores, "source_target", algorithm, kwargs, full_data, to_log)
+                    cl_clustering_scores, cl, algorithm, kwargs, full_data, to_log)
 
     def cluster_accuracy(self, to_log, cl=False):
         assert cl in [False, "multilingual", "separately"]
         to_test = {
-            "attention": {},
+            "attention": {
+                "n_topics": range(14, 43, 14)
+            },
             "kmeans": {
                 "n_clusters": range(5, 51, 3)
             },
             "affinity": {
-                "damping": np.linspace(0.5, 0.95, 10)
+                "preference": list(chain(range(-42, -6, 3), range(-6, 1, 1)))
             },
-            "hdbscan": {
-                "min_cluster_size": range(5, 51, 5)
-            }
         }
         for method, args in to_test.items():
             for full_data in [False, True]:
@@ -180,12 +180,6 @@ class Evaluator(object):
         logger.info("Cross-lingual word similarity score average: %.5f" % ws_crosslingual_scores)
         to_log['ws_crosslingual_scores'] = ws_crosslingual_scores
         to_log.update({'src_tgt_' + k: v for k, v in src_tgt_ws_scores.items()})
-
-    def crosslingual_cluster_accuracy(self, to_log):
-        """
-        Evaluation on cross-lingual word similarity.
-        """
-
 
     def word_translation(self, to_log):
         """

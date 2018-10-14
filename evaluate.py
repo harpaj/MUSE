@@ -53,16 +53,17 @@ evaluator = Evaluator(trainer)
 # run evaluations
 to_log = OrderedDict({'n_iter': 0})
 evaluator.cluster_accuracy(to_log)
-evaluator.monolingual_wordsim(to_log)
-evaluator.monolingual_wordanalogy(to_log)
+# evaluator.monolingual_wordsim(to_log)
+# evaluator.monolingual_wordanalogy(to_log)
 if params.tgt_lang:
     evaluator.cluster_accuracy(to_log, cl="separately")
-    evaluator.crosslingual_wordsim(to_log)
+    evaluator.cluster_accuracy(to_log, cl="multilingual")
+    # evaluator.crosslingual_wordsim(to_log)
     # evaluator.word_translation(to_log)
     # evaluator.sent_translation(to_log)
     # evaluator.dist_mean_cosine(to_log)
 
 logger.info(" === EVALUTATION RESULTS === ")
 for test, result in to_log.items():
-    if "ARI" in test or "HOMO" in test or "COMP" in test:
+    if "LEN" in test or "HOMO" in test or "COMP" in test:
         logger.info("{}\t{}".format(test, result))
